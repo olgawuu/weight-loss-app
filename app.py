@@ -4,7 +4,7 @@ from PIL import Image
 from datetime import datetime, date
 
 # 頁面基本設定
-st.set_page_config(page_title="個人減肥小助手", page_icon="🥗", layout="centered")
+st.set_page_config(page_title="個人減肥小助手", page_icon="icon.png", layout="centered")
 
 # 精簡標題並縮小字體 (使用 subheader 替代原本巨大的 st.title)
 st.subheader("🥗 個人減肥小助手")
