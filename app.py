@@ -4,9 +4,10 @@ from PIL import Image
 from datetime import datetime, date
 
 # 頁面基本設定
-st.set_page_config(page_title="個人減肥紀錄小助手", page_icon="🥗", layout="centered")
+st.set_page_config(page_title="個人減肥小助手", page_icon="🥗", layout="centered")
 
-st.title("🥗 個人減肥紀錄小助手 (個人化精算版)")
+# 精簡標題並縮小字體 (使用 subheader 替代原本巨大的 st.title)
+st.subheader("🥗 個人減肥小助手")
 
 # 側邊欄：個人化進階設定
 st.sidebar.header("⚙️ 個人與身體數據設定")
@@ -51,7 +52,7 @@ tdee = bmr * activity_factor
 # 減肥建議熱量：製造約 300~500 kcal 的熱量赤字，但設定安全底限
 recommended_calories = int(tdee - 400)
 if recommended_calories < 1200:
-    recommended_calories = 1200  # 女性安全基礎熱量底限
+    recommended_calories = 1200
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"🔥 **教練精算結果**：\n- 基礎代謝率 (BMR)：約 **{int(bmr)}** kcal\n- 每日總消耗 (TDEE)：約 **{int(tdee)}** kcal\n- **建議減肥目標熱量**：**{recommended_calories}** kcal/天")
