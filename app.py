@@ -6,7 +6,7 @@ from datetime import datetime, date
 # 頁面基本設定
 st.set_page_config(page_title="個人減肥小助手", page_icon="icon.png", layout="centered")
 
-# CSS 樣式設定
+# 精準 CSS 樣式設定
 st.markdown("""
 <style>
     /* 1. 刪除按鈕：紅字 + 底線 + 小字 + 無邊框 */
@@ -28,15 +28,36 @@ st.markdown("""
 
     /* 2. 精準針對「新增常用食物」輸入框套用淺黃色底色與黃色邊框 */
     div[data-testid="stTextInput"] input[aria-label="新增常用食物"] {
-        background-color: #fffde7 !important; /* 柔和淺黃底色 */
-        border: 1.5px solid #ffe082 !important; /* 黃色邊框 */
+        background-color: #ffffff !important;
+        border: 1.5px solid #ffe082 !important;
         color: #333333 !important;
     }
-    
-    /* 聚焦時的邊框顏色 */
     div[data-testid="stTextInput"] input[aria-label="新增常用食物"]:focus {
         border-color: #ffd54f !important;
         box-shadow: 0 0 0 1px #ffd54f !important;
+    }
+    
+    /* 3. 【特別區隔】常用食物管理 Expander 樣式設計 */
+    div[data-testid="stExpander"] {
+        border: 1.5px solid #ffe082 !important;  /* 柔和黃色實線邊框 */
+        border-radius: 10px !important;
+        background-color: #fffde7 !important;     /* 淡奶油黃底色 */
+        margin-top: 14px !important;
+        margin-bottom: 18px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
+    }
+    
+    /* 調整 Expander 標題文字樣式 */
+    div[data-testid="stExpander"] details summary p {
+        color: #795548 !important;              /* 深棕色文字 */
+        font-weight: bold !important;
+        font-size: 15px !important;
+    }
+    
+    /* 滑鼠懸停時微加深底色 */
+    div[data-testid="stExpander"]:hover {
+        background-color: #fff9c4 !important;
+        border-color: #ffd54f !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -139,53 +160,76 @@ st.subheader("🍽️ 記錄今天的一餐")
 
 meal_type = st.radio("選擇餐別", ["早餐", "午餐", "晚餐", "下午茶", "宵夜"], horizontal=True)
 
-# 1. 從常用食物中選取
-col_select, col_del_btn = st.columns([5, 1])
-with col_select:
-    selected_common = st.selectbox(
-        "從常用食物中快速帶入：", 
-        ["-- 請選擇常用食物 --"] + st.session_state['common_foods']
-    )
-
-with col_del_btn:
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-    if selected_common != "-- 請選擇常用食物 --":
-        if st.button("刪除此項", key=f"del_select_{selected_common}"):
-            st.session_state['common_foods'].remove(selected_common)
-            st.success(f"已刪除「{selected_common}」")
-            st.rerun()
+# 1. 快速選擇常用食物
+selected_common = st.selectbox(
+    "⚡ 快速選擇常用食物：", 
+    ["-- 請選擇常用食物 --"] + st.session_state['common_foods']
+)
 
 # 決定文字輸入框的預設值
 default_text = ""
 if selected_common != "-- 請選擇常用食物 --":
     default_text = selected_common
 
-# 2. 當餐實際輸入框
-food_text = st.text_input("請輸入你吃了什麼（或點選上方常用清單快速帶入）", value=default_text, placeholder="請在此輸入食物描述...")
+st.markdown("<div style='margin-bottom: 8px;'></div>", unsafe_allow_html=True)
 
-# 3. 新增常用食物（直抓標籤名為「新增常用食物」來套用黃底）
-c1, c2 = st.columns([4, 1])
-with c1:
-    new_food_input = st.text_input(
-        "新增常用食物", 
-        placeholder="新增常用食物（例如：酪梨水煮蛋全麥吐司）", 
-        label_visibility="collapsed"
-    )
-with c2:
-    if st.button("➕ 加入常用", use_container_width=True):
-        if new_food_input and new_food_input not in st.session_state['common_foods']:
-            st.session_state['common_foods'].append(new_food_input)
-            st.success(f"已加入！")
-            st.rerun()
+# 2. 當餐實際描述輸入框
+food_text = st.text_input(
+    "✏️ 今日餐點描述 (可手動輸入或由上方帶入)", 
+    value=default_text, 
+    placeholder="例如：雞腿便當飯半碗、無糖綠茶..."
+)
+
+# 3. 集中化的【常用食物管理卡片】（淡黃底色獨立區隔）
+with st.expander("⚙️ 管理常用食物清單（新增 / 刪除常用項目）"):
+    # 新增區域
+    st.markdown("<span style='font-size: 13px; font-weight: bold; color: #5d4037;'>➕ 新增常用食物：</span>", unsafe_allow_html=True)
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        new_food_input = st.text_input(
+            "新增常用食物", 
+            placeholder="輸入名稱，例如：酪梨水煮蛋全麥吐司", 
+            label_visibility="collapsed"
+        )
+    with c2:
+        if st.button("加入常用", use_container_width=True):
+            if new_food_input and new_food_input not in st.session_state['common_foods']:
+                st.session_state['common_foods'].append(new_food_input)
+                st.success(f"已加入「{new_food_input}」！")
+                st.rerun()
+
+    st.markdown("<hr style='margin: 12px 0; border-top: 1px solid #ffe082;'>", unsafe_allow_html=True)
+    
+    # 刪除區域（使用下拉選單呈現）
+    st.markdown("<span style='font-size: 13px; font-weight: bold; color: #5d4037;'>🗑️ 刪除常用食物：</span>", unsafe_allow_html=True)
+    
+    if not st.session_state['common_foods']:
+        st.caption("目前沒有常用食物可供刪除。")
+    else:
+        col_del_select, col_del_btn = st.columns([4, 1])
+        with col_del_select:
+            food_to_delete = st.selectbox(
+                "選擇要刪除的常用食物",
+                ["-- 請選擇要刪除的項目 --"] + st.session_state['common_foods'],
+                label_visibility="collapsed"
+            )
+        with col_del_btn:
+            if food_to_delete != "-- 請選擇要刪除的項目 --":
+                if st.button("刪除此項", key=f"del_manage_{food_to_delete}"):
+                    st.session_state['common_foods'].remove(food_to_delete)
+                    st.success(f"已刪除「{food_to_delete}」")
+                    st.rerun()
 
 # 4. 上傳照片
-uploaded_file = st.file_uploader("或上傳食物照片 (選填)", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📷 上傳餐點照片 (選填)", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="已上傳的照片", width=300)
 
-if st.button("分析並記錄", type="primary"):
+st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
+
+if st.button("🚀 分析並記錄這餐", type="primary", use_container_width=True):
     if not food_text and not uploaded_file:
         st.warning("請至少輸入文字描述或上傳照片！")
     else:
