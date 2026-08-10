@@ -200,6 +200,7 @@ meal_type = st.radio("選擇餐別", ["早餐", "午餐", "晚餐", "下午茶",
 selected_common = st.selectbox(
     "⚡ 快速選擇常用食物：", 
     ["-- 請選擇常用食物 --"] + list(st.session_state.get('common_foods', []))
+)
 
 default_text = ""
 if selected_common != "-- 請選擇常用食物 --":
