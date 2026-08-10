@@ -121,8 +121,17 @@ def load_history_from_gsheets():
         return []
 
 def save_history_to_gsheets(history_list):
-    df = pd.DataFrame(history_list)
-    conn.update(spreadsheet=GSHEET_URL, worksheet="history", data=df)
+    try:
+        df = pd.DataFrame(history_list)
+        # 轉成 gspread 可接受的二維陣列格式 (含 Header)
+        data_to_write = [df.columns.values.tolist()] + df.astype(str).values.tolist()
+        
+        # 透過 conn 底層的 client 直接操作工作表
+        ws = conn.client.open_by_url(GSHEET_URL).worksheet("history")
+        ws.clear()
+        ws.update("A1", data_to_write)
+    except Exception as e:
+        st.error(f"寫入歷史紀錄失敗：{e}")
 
 def load_common_foods_from_gsheets():
     try:
@@ -133,15 +142,15 @@ def load_common_foods_from_gsheets():
         return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
 
 def save_common_foods_to_gsheets(foods_list):
-    df = pd.DataFrame({'food': foods_list})
-    conn.update(spreadsheet=GSHEET_URL, worksheet="common_foods", data=df)
-
-# 初始化 Session State（自動從 Google Sheets 載入）
-if 'history' not in st.session_state:
-    st.session_state['history'] = load_history_from_gsheets()
-
-if 'common_foods' not in st.session_state:
-    st.session_state['common_foods'] = load_common_foods_from_gsheets()
+    try:
+        df = pd.DataFrame({'food': foods_list})
+        data_to_write = [df.columns.values.tolist()] + df.astype(str).values.tolist()
+        
+        ws = conn.client.open_by_url(GSHEET_URL).worksheet("common_foods")
+        ws.clear()
+        ws.update("A1", data_to_write)
+    except Exception as e:
+        st.error(f"寫入常用食物失敗：{e}")
 
 
 # ==================== 功能一：每週教練總結專區 ====================
