@@ -3,8 +3,43 @@ import pandas as pd
 from PIL import Image
 from datetime import datetime, date
 
-# 頁面基本設定 (維持修改後的標題與 icon)
+# 頁面基本設定
 st.set_page_config(page_title="個人減肥小助手", page_icon="icon.png", layout="centered")
+
+# CSS 樣式設定
+st.markdown("""
+<style>
+    /* 1. 刪除按鈕：紅字 + 底線 + 小字 + 無邊框 */
+    div[data-testid="stButton"] button[key*="del_"] {
+        border: none !important;
+        background: transparent !important;
+        color: #ff4b4b !important;
+        text-decoration: underline !important;
+        font-size: 13px !important;
+        padding: 0px !important;
+        height: 38px !important;
+        line-height: 38px !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stButton"] button[key*="del_"]:hover {
+        color: #d32f2f !important;
+        background: transparent !important;
+    }
+
+    /* 2. 精準針對「新增常用食物」輸入框套用淺黃色底色與黃色邊框 */
+    div[data-testid="stTextInput"] input[aria-label="新增常用食物"] {
+        background-color: #fffde7 !important; /* 柔和淺黃底色 */
+        border: 1.5px solid #ffe082 !important; /* 黃色邊框 */
+        color: #333333 !important;
+    }
+    
+    /* 聚焦時的邊框顏色 */
+    div[data-testid="stTextInput"] input[aria-label="新增常用食物"]:focus {
+        border-color: #ffd54f !important;
+        box-shadow: 0 0 0 1px #ffd54f !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.subheader("🥗 個人減肥小助手")
 
@@ -56,7 +91,7 @@ st.sidebar.markdown(f"🔥 **教練精算結果**：\n- 基礎代謝率 (BMR)：
 if 'history' not in st.session_state:
     st.session_state['history'] = []
 
-# 【新功能 1】初始化常用食物清單
+# 初始化常用食物清單
 if 'common_foods' not in st.session_state:
     st.session_state['common_foods'] = [
         "水煮蛋沙拉", 
@@ -67,7 +102,7 @@ if 'common_foods' not in st.session_state:
     ]
 
 
-# ==================== 功能一：每週教練總結專區 (含具體舉例) ====================
+# ==================== 功能一：每週教練總結專區 ====================
 st.markdown("### 🏆 本週教練總結報告")
 if st.button("生成本週飲食總結與教練講評", type="secondary"):
     if not st.session_state['history']:
@@ -89,7 +124,7 @@ if st.button("生成本週飲食總結與教練講評", type="secondary"):
 1. **增加高纖優質蛋白攝取**：
    * *何謂高纖蛋白食物？* 建議多選擇同時富含膳食纖維與蛋白質的食材，例如：**毛豆、黑豆、鷹嘴豆、豆腐、天貝**，或是將主食替換成**地瓜、燕麥、藜麥**搭配雞胸肉。
 2. **優化點心與碳水選擇**：
-   * *具體替代方案*：如果下午嘴饞想吃零食，可以改為**無調味堅果（一小把約 10 顆）**、** griechische 優格（希臘優格）** 或 **芭樂、小番茄**，避免精緻糖分導致血糖波動與熱量超標。
+   * *具體替代方案*：如果下午嘴饞想吃零食，可以改為**無調味堅果（一小把約 10 顆）**、**希臘優格** 或 **芭樂、小番茄**，避免精緻糖分導致血糖波動與熱量超標。
 3. **水分補充**：每日建議喝足「體重 × 35ml」的水分（約 {int(current_weight * 35)} ml），加速新陳代謝！
 
 > **教練寄語**：減脂是一場科學與耐心兼具的過程！只要照著目前的建議熱量穩健執行，一定能看到漂亮的成果！加油！🔥
@@ -99,33 +134,51 @@ if st.button("生成本週飲食總結與教練講評", type="secondary"):
 
 st.markdown("---")
 
-# ==================== 功能二：記錄每一餐 (整合常用食物) ====================
+# ==================== 功能二：記錄每一餐 ====================
 st.subheader("🍽️ 記錄今天的一餐")
 
 meal_type = st.radio("選擇餐別", ["早餐", "午餐", "晚餐", "下午茶", "宵夜"], horizontal=True)
 
-# 【新功能 1 介面】常用食物快捷選單與自訂管理
-with st.expander("⭐ 常用食物快速選擇與管理"):
-    selected_common = st.selectbox("從常用食物中快速帶入：", ["-- 請選擇常用食物 --"] + st.session_state['common_foods'])
-    
-    # 新增常用食物區塊
-    new_food_input = st.text_input("新增自訂常用食物名稱：", placeholder="例如：酪梨水煮蛋全麥吐司")
-    if st.button("加入常用清單"):
-        if new_food_input and new_food_input not in st.session_state['common_foods']:
-            st.session_state['common_foods'].append(new_food_input)
-            st.success(f"已成功將「{new_food_input}」加入常用食物清單！")
-            st.rerun()
-        elif not new_food_input:
-            st.warning("請輸入食物名稱！")
-        else:
-            st.info("此食物已經在常用清單中囉！")
+# 1. 從常用食物中選取
+col_select, col_del_btn = st.columns([5, 1])
+with col_select:
+    selected_common = st.selectbox(
+        "從常用食物中快速帶入：", 
+        ["-- 請選擇常用食物 --"] + st.session_state['common_foods']
+    )
 
-# 決定文字輸入框的預設值（如果使用者從下拉選單選了常用食物，就自動帶入）
+with col_del_btn:
+    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    if selected_common != "-- 請選擇常用食物 --":
+        if st.button("刪除此項", key=f"del_select_{selected_common}"):
+            st.session_state['common_foods'].remove(selected_common)
+            st.success(f"已刪除「{selected_common}」")
+            st.rerun()
+
+# 決定文字輸入框的預設值
 default_text = ""
 if selected_common != "-- 請選擇常用食物 --":
     default_text = selected_common
 
+# 2. 當餐實際輸入框
 food_text = st.text_input("請輸入你吃了什麼（或點選上方常用清單快速帶入）", value=default_text, placeholder="請在此輸入食物描述...")
+
+# 3. 新增常用食物（直抓標籤名為「新增常用食物」來套用黃底）
+c1, c2 = st.columns([4, 1])
+with c1:
+    new_food_input = st.text_input(
+        "新增常用食物", 
+        placeholder="新增常用食物（例如：酪梨水煮蛋全麥吐司）", 
+        label_visibility="collapsed"
+    )
+with c2:
+    if st.button("➕ 加入常用", use_container_width=True):
+        if new_food_input and new_food_input not in st.session_state['common_foods']:
+            st.session_state['common_foods'].append(new_food_input)
+            st.success(f"已加入！")
+            st.rerun()
+
+# 4. 上傳照片
 uploaded_file = st.file_uploader("或上傳食物照片 (選填)", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
@@ -179,13 +232,23 @@ if st.button("分析並記錄", type="primary"):
                 "分析結果": analysis_result
             })
 
-# 顯示歷史紀錄
+# ==================== 功能三：歷史紀錄與右側刪除 ====================
 if st.session_state['history']:
     st.markdown("---")
     st.subheader("📜 近期飲食紀錄")
+    
     for idx, item in enumerate(reversed(st.session_state['history'])):
+        real_idx = len(st.session_state['history']) - 1 - idx
         item_date = item.get("日期", "早期紀錄")
         item_content = item.get("內容", "未知餐點")
         
-        with st.expander(f"[{item_date}] 紀錄 #{len(st.session_state['history']) - idx}：{item_content}"):
-            st.write(item['分析結果'])
+        col_history, col_del_hist = st.columns([5, 1])
+        
+        with col_history:
+            with st.expander(f"[{item_date}] {item_content}"):
+                st.write(item['分析結果'])
+                
+        with col_del_hist:
+            if st.button("刪除", key=f"del_hist_{real_idx}"):
+                st.session_state['history'].pop(real_idx)
+                st.rerun()
