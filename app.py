@@ -66,10 +66,10 @@ st.subheader("🥗 個人減肥小助手")
 # 側邊欄：個人化進階設定
 st.sidebar.header("⚙️ 個人與身體數據設定")
 
-current_weight = st.sidebar.number_input("目前體重 (kg)", value=60.0, step=0.1)
-target_weight = st.sidebar.number_input("目標體重 (kg)", value=55.0, step=0.1)
-height = st.sidebar.number_input("身高 (cm)", value=160.0, step=1.0)
-body_fat = st.sidebar.number_input("體脂率 % (選填，若知道可填)", value=28.0, step=0.1)
+current_weight = st.sidebar.number_input("目前體重 (kg)", value=66.7, step=0.1)
+target_weight = st.sidebar.number_input("目標體重 (kg)", value=48.0, step=0.1)
+height = st.sidebar.number_input("身高 (cm)", value=157.0, step=1.0)
+body_fat = st.sidebar.number_input("體脂率 % (選填，若知道可填)", value=37.2, step=0.1)
 
 # 計算年齡（以 1990/08/21 出生計算）
 birth_date = date(1990, 8, 21)
