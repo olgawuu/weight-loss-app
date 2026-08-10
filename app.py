@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 from datetime import datetime, date
+from streamlit_gsheets import GSheetsConnection
 
 # 頁面基本設定
 st.set_page_config(page_title="個人減肥小助手", page_icon="icon.png", layout="centered")
@@ -39,22 +40,20 @@ st.markdown("""
     
     /* 3. 【特別區隔】常用食物管理 Expander 樣式設計 */
     div[data-testid="stExpander"] {
-        border: 1.5px solid #ffe082 !important;  /* 柔和黃色實線邊框 */
+        border: 1.5px solid #ffe082 !important;
         border-radius: 10px !important;
-        background-color: #fffde7 !important;     /* 淡奶油黃底色 */
+        background-color: #fffde7 !important;
         margin-top: 14px !important;
         margin-bottom: 18px !important;
         box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
     }
     
-    /* 調整 Expander 標題文字樣式 */
     div[data-testid="stExpander"] details summary p {
-        color: #795548 !important;              /* 深棕色文字 */
+        color: #795548 !important;
         font-weight: bold !important;
         font-size: 15px !important;
     }
     
-    /* 滑鼠懸停時微加深底色 */
     div[data-testid="stExpander"]:hover {
         background-color: #fff9c4 !important;
         border-color: #ffd54f !important;
@@ -108,19 +107,41 @@ if recommended_calories < 1200:
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"🔥 **教練精算結果**：\n- 基礎代謝率 (BMR)：約 **{int(bmr)}** kcal\n- 每日總消耗 (TDEE)：約 **{int(tdee)}** kcal\n- **建議減肥目標熱量**：**{recommended_calories}** kcal/天")
 
-# 初始化 Session State
-if 'history' not in st.session_state:
-    st.session_state['history'] = []
+# ==================== Google Sheets 資料庫串接 ====================
+# ⚠️ 請將下方替換為你複製的 Google 試算表完整網址
+GSHEET_URL = "https://docs.google.com/spreadsheets/d/1WgiAjDs4FV_JqkH0cHRtf1-D9jVuSudzgR2E6ChZvCk/edit?usp=sharing"
 
-# 初始化常用食物清單
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def load_history_from_gsheets():
+    try:
+        df = conn.read(spreadsheet=GSHEET_URL, worksheet="history", ttl="0s")
+        return df.dropna(how="all").to_dict('records')
+    except Exception:
+        return []
+
+def save_history_to_gsheets(history_list):
+    df = pd.DataFrame(history_list)
+    conn.update(spreadsheet=GSHEET_URL, worksheet="history", data=df)
+
+def load_common_foods_from_gsheets():
+    try:
+        df = conn.read(spreadsheet=GSHEET_URL, worksheet="common_foods", ttl="0s")
+        foods = df['food'].dropna().tolist()
+        return foods if foods else ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
+    except Exception:
+        return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
+
+def save_common_foods_to_gsheets(foods_list):
+    df = pd.DataFrame({'food': foods_list})
+    conn.update(spreadsheet=GSHEET_URL, worksheet="common_foods", data=df)
+
+# 初始化 Session State（自動從 Google Sheets 載入）
+if 'history' not in st.session_state:
+    st.session_state['history'] = load_history_from_gsheets()
+
 if 'common_foods' not in st.session_state:
-    st.session_state['common_foods'] = [
-        "水煮蛋沙拉", 
-        "無糖豆漿 + 茶葉蛋", 
-        "雞胸肉糙米飯便當", 
-        "鮭魚櫛瓜排餐", 
-        "希臘優格搭堅果"
-    ]
+    st.session_state['common_foods'] = load_common_foods_from_gsheets()
 
 
 # ==================== 功能一：每週教練總結專區 ====================
@@ -166,7 +187,6 @@ selected_common = st.selectbox(
     ["-- 請選擇常用食物 --"] + st.session_state['common_foods']
 )
 
-# 決定文字輸入框的預設值
 default_text = ""
 if selected_common != "-- 請選擇常用食物 --":
     default_text = selected_common
@@ -180,9 +200,8 @@ food_text = st.text_input(
     placeholder="例如：雞腿便當飯半碗、無糖綠茶..."
 )
 
-# 3. 集中化的【常用食物管理卡片】（淡黃底色獨立區隔）
+# 3. 集中化的【常用食物管理卡片】
 with st.expander("⚙️ 管理常用食物清單（新增 / 刪除常用項目）"):
-    # 新增區域
     st.markdown("<span style='font-size: 13px; font-weight: bold; color: #5d4037;'>➕ 新增常用食物：</span>", unsafe_allow_html=True)
     c1, c2 = st.columns([4, 1])
     with c1:
@@ -195,12 +214,12 @@ with st.expander("⚙️ 管理常用食物清單（新增 / 刪除常用項目�
         if st.button("加入常用", use_container_width=True):
             if new_food_input and new_food_input not in st.session_state['common_foods']:
                 st.session_state['common_foods'].append(new_food_input)
+                save_common_foods_to_gsheets(st.session_state['common_foods'])
                 st.success(f"已加入「{new_food_input}」！")
                 st.rerun()
 
     st.markdown("<hr style='margin: 12px 0; border-top: 1px solid #ffe082;'>", unsafe_allow_html=True)
     
-    # 刪除區域（使用下拉選單呈現）
     st.markdown("<span style='font-size: 13px; font-weight: bold; color: #5d4037;'>🗑️ 刪除常用食物：</span>", unsafe_allow_html=True)
     
     if not st.session_state['common_foods']:
@@ -217,6 +236,7 @@ with st.expander("⚙️ 管理常用食物清單（新增 / 刪除常用項目�
             if food_to_delete != "-- 請選擇要刪除的項目 --":
                 if st.button("刪除此項", key=f"del_manage_{food_to_delete}"):
                     st.session_state['common_foods'].remove(food_to_delete)
+                    save_common_foods_to_gsheets(st.session_state['common_foods'])
                     st.success(f"已刪除「{food_to_delete}」")
                     st.rerun()
 
@@ -270,11 +290,13 @@ if st.button("🚀 分析並記錄這餐", type="primary", use_container_width=T
             st.success("分析完成！")
             st.markdown(analysis_result)
             
-            st.session_state['history'].append({
+            new_entry = {
                 "日期": current_date,
                 "內容": full_item_name,
                 "分析結果": analysis_result
-            })
+            }
+            st.session_state['history'].append(new_entry)
+            save_history_to_gsheets(st.session_state['history'])  # 即時同步回雲端試算表
 
 # ==================== 功能三：歷史紀錄與右側刪除 ====================
 if st.session_state['history']:
@@ -295,4 +317,5 @@ if st.session_state['history']:
         with col_del_hist:
             if st.button("刪除", key=f"del_hist_{real_idx}"):
                 st.session_state['history'].pop(real_idx)
+                save_history_to_gsheets(st.session_state['history'])  # 刪除後同步更新雲端
                 st.rerun()
