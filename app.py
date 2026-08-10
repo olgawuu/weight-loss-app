@@ -152,6 +152,12 @@ def save_common_foods_to_gsheets(foods_list):
     except Exception as e:
         st.error(f"寫入常用食物失敗：{e}")
 
+# ==================== Session State 初始化 ====================
+if 'common_foods' not in st.session_state:
+    st.session_state['common_foods'] = load_common_foods_from_gsheets()
+
+if 'history' not in st.session_state:
+    st.session_state['history'] = load_history_from_gsheets()
 
 # ==================== 功能一：每週教練總結專區 ====================
 st.markdown("### 🏆 本週教練總結報告")
@@ -193,8 +199,7 @@ meal_type = st.radio("選擇餐別", ["早餐", "午餐", "晚餐", "下午茶",
 # 1. 快速選擇常用食物
 selected_common = st.selectbox(
     "⚡ 快速選擇常用食物：", 
-    ["-- 請選擇常用食物 --"] + st.session_state['common_foods']
-)
+    ["-- 請選擇常用食物 --"] + list(st.session_state.get('common_foods', []))
 
 default_text = ""
 if selected_common != "-- 請選擇常用食物 --":
