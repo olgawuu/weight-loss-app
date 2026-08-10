@@ -123,13 +123,8 @@ def load_history_from_gsheets():
 def save_history_to_gsheets(history_list):
     try:
         df = pd.DataFrame(history_list)
-        # 轉成 gspread 可接受的二維陣列格式 (含 Header)
-        data_to_write = [df.columns.values.tolist()] + df.astype(str).values.tolist()
-        
-        # 透過 conn 底層的 client 直接操作工作表
-        ws = conn.client.open_by_url(GSHEET_URL).worksheet("history")
-        ws.clear()
-        ws.update("A1", data_to_write)
+        # 使用 streamlit-gsheets 官方寫入語法
+        conn.write(spreadsheet=GSHEET_URL, worksheet="history", data=df)
     except Exception as e:
         st.error(f"寫入歷史紀錄失敗：{e}")
 
@@ -144,11 +139,8 @@ def load_common_foods_from_gsheets():
 def save_common_foods_to_gsheets(foods_list):
     try:
         df = pd.DataFrame({'food': foods_list})
-        data_to_write = [df.columns.values.tolist()] + df.astype(str).values.tolist()
-        
-        ws = conn.client.open_by_url(GSHEET_URL).worksheet("common_foods")
-        ws.clear()
-        ws.update("A1", data_to_write)
+        # 使用 streamlit-gsheets 官方寫入語法
+        conn.write(spreadsheet=GSHEET_URL, worksheet="common_foods", data=df)
     except Exception as e:
         st.error(f"寫入常用食物失敗：{e}")
 
