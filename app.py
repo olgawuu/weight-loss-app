@@ -108,14 +108,11 @@ st.sidebar.markdown("---")
 st.sidebar.markdown(f"🔥 **教練精算結果**：\n- 基礎代謝率 (BMR)：約 **{int(bmr)}** kcal\n- 每日總消耗 (TDEE)：約 **{int(tdee)}** kcal\n- **建議減肥目標熱量**：**{recommended_calories}** kcal/天")
 
 # ==================== Google Sheets 資料庫串接 ====================
-# ⚠️ 請將下方替換為你複製的 Google 試算表完整網址
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/1WgiAjDs4FV_JqkH0cHRtf1-D9jVuSudzgR2E6ChZvCk/edit?usp=sharing"
-
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_history_from_gsheets():
     try:
-        df = conn.read(spreadsheet=GSHEET_URL, worksheet="history", ttl="0s")
+        df = conn.read(worksheet="history", ttl="0s")
         return df.dropna(how="all").to_dict('records')
     except Exception:
         return []
@@ -123,14 +120,14 @@ def load_history_from_gsheets():
 def save_history_to_gsheets(history_list):
     try:
         df = pd.DataFrame(history_list)
-        # 使用 streamlit-gsheets 官方寫入語法
-        conn.write(spreadsheet=GSHEET_URL, worksheet="history", data=df)
+        # 使用 Service Account 驗證後，即可正常 update
+        conn.update(worksheet="history", data=df)
     except Exception as e:
         st.error(f"寫入歷史紀錄失敗：{e}")
 
 def load_common_foods_from_gsheets():
     try:
-        df = conn.read(spreadsheet=GSHEET_URL, worksheet="common_foods", ttl="0s")
+        df = conn.read(worksheet="common_foods", ttl="0s")
         foods = df['food'].dropna().tolist()
         return foods if foods else ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
     except Exception:
@@ -139,8 +136,7 @@ def load_common_foods_from_gsheets():
 def save_common_foods_to_gsheets(foods_list):
     try:
         df = pd.DataFrame({'food': foods_list})
-        # 使用 streamlit-gsheets 官方寫入語法
-        conn.write(spreadsheet=GSHEET_URL, worksheet="common_foods", data=df)
+        conn.update(worksheet="common_foods", data=df)
     except Exception as e:
         st.error(f"寫入常用食物失敗：{e}")
 
