@@ -1,23 +1,52 @@
 import streamlit as st
 import pandas as pd
-import google.generativeai as genai
 from PIL import Image
 import plotly.express as px
-from streamlit_gsheets import GSheetsConnection
 import bcrypt
 import json
 from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
 
 # 設定頁面標題與寬度
 st.set_page_config(page_title="AI 減重飲食助手", page_icon="🥗", layout="wide")
 
-# ==================== Google Sheets 資料庫串接 ====================
-conn = st.connection("gsheets", type=GSheetsConnection)
+# ==================== Google Sheets 安全連線處理 ====================
+def get_gsheets_client():
+    # 取出 secrets 設定檔
+    creds_dict = dict(st.secrets["connections"]["gsheets"])
+    
+    # 關鍵修正：修復 private_key 中的 \n 轉義字元問題
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
+
+def get_worksheet(worksheet_name):
+    client = get_gsheets_client()
+    spreadsheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+    if spreadsheet_url:
+        spreadsheet = client.open_by_url(spreadsheet_url)
+    else:
+        spreadsheet = client.open("飲食紀錄")
+    
+    try:
+        return spreadsheet.worksheet(worksheet_name)
+    except Exception:
+        # 若工作表不存在則自動建立
+        return spreadsheet.add_worksheet(title=worksheet_name, rows="100", cols="20")
 
 # ── 使用者驗證與管理 ──
 def load_users_from_gsheets():
     try:
-        df = conn.read(worksheet="users", ttl="0s")
+        ws = get_worksheet("users")
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
         return df.dropna(how="all")
     except Exception:
         return pd.DataFrame(columns=[
@@ -34,20 +63,21 @@ def register_user(username, password, name):
     # 密碼 Hash 加密
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
-    new_user = pd.DataFrame([{
-        "username": username,
-        "password": hashed_pw,
-        "name": name,
-        "weight": 60.0,
-        "target_weight": 50.0,
-        "height": 160.0,
-        "body_fat": 25.0,
-        "activity_level": "久坐少動 (辦公室工作、幾乎不運動)"
-    }])
-    
-    updated_df = pd.concat([df_users, new_user], ignore_index=True)
     try:
-        conn.update(worksheet="users", data=updated_df)
+        ws = get_worksheet("users")
+        
+        # 如果是空白表，先寫入 Header
+        existing_data = ws.get_all_values()
+        if not existing_data:
+            headers = ["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"]
+            ws.append_row(headers)
+
+        new_row = [
+            username, hashed_pw, name,
+            60.0, 50.0, 160.0, 25.0,
+            "久坐少動 (辦公室工作、幾乎不運動)"
+        ]
+        ws.append_row(new_row)
         return True, "註冊成功！請切換至登入頁面登入。"
     except Exception as e:
         return False, f"註冊失敗：{e}"
@@ -73,37 +103,37 @@ def verify_user(username, password):
 
 def update_user_profile(username, weight, target_weight, height, body_fat, activity_level):
     try:
-        df_users = load_users_from_gsheets()
+        ws = get_worksheet("users")
+        data = ws.get_all_records()
+        df_users = pd.DataFrame(data)
         idx = df_users[df_users['username'].astype(str) == str(username)].index
+        
         if not idx.empty:
-            df_users.loc[idx, 'weight'] = weight
-            df_users.loc[idx, 'target_weight'] = target_weight
-            df_users.loc[idx, 'height'] = height
-            df_users.loc[idx, 'body_fat'] = body_fat
-            df_users.loc[idx, 'activity_level'] = activity_level
+            target_row_num = idx[0] + 2  # Excel/GSheets 1-based index + Header 佔 1 行
+            df_users.loc[idx[0], 'weight'] = weight
+            df_users.loc[idx[0], 'target_weight'] = target_weight
+            df_users.loc[idx[0], 'height'] = height
+            df_users.loc[idx[0], 'body_fat'] = body_fat
+            df_users.loc[idx[0], 'activity_level'] = activity_level
             
-            conn.update(worksheet="users", data=df_users)
+            # 重新寫入整張 Users 工作表
+            ws.clear()
+            ws.append_row(["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"])
+            for _, row in df_users.iterrows():
+                ws.append_row(row.tolist())
+                
             st.toast("個人身體數據已成功更新！", icon="✅")
     except Exception as e:
         st.error(f"更新數據失敗：{e}")
 
 
-# ── 修正 Streamlit Secrets 中的 private_key 轉義問題 ──
-try:
-    if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-        if "private_key" in st.secrets["connections"]["gsheets"]:
-            # 將單行字串中的 \n 轉為標準 PEM 格式的真實換行
-            st.secrets["connections"]["gsheets"]["private_key"] = (
-                st.secrets["connections"]["gsheets"]["private_key"].replace("\\n", "\n")
-            )
-except Exception:
-    pass
-
 # ── 歷史紀錄與常用食物讀寫（含 username 多租戶過濾） ──
 def load_history_from_gsheets(current_user):
     try:
-        df = conn.read(worksheet="history", ttl="0s").dropna(how="all")
-        if 'username' in df.columns:
+        ws = get_worksheet("history")
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
+        if not df.empty and 'username' in df.columns:
             df_filtered = df[df['username'].astype(str) == str(current_user)]
             return df_filtered.to_dict('records')
         return []
@@ -112,30 +142,48 @@ def load_history_from_gsheets(current_user):
 
 def save_history_to_gsheets(history_list):
     try:
-        df_new = pd.DataFrame(history_list)
-        try:
-            df_existing = conn.read(worksheet="history", ttl="0s").dropna(how="all")
-            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-        except Exception:
-            df_combined = df_new
-
-        conn.update(worksheet="history", data=df_combined)
+        ws = get_worksheet("history")
+        
+        # 如果是空白表，先寫入 Header
+        existing_data = ws.get_all_values()
+        if not existing_data:
+            headers = ["username", "time", "meal", "food", "calories", "protein", "fat", "carbs"]
+            ws.append_row(headers)
+            
+        for record in history_list:
+            row = [
+                record.get("username", ""),
+                record.get("time", ""),
+                record.get("meal", ""),
+                record.get("food", ""),
+                record.get("calories", 0),
+                record.get("protein", 0),
+                record.get("fat", 0),
+                record.get("carbs", 0)
+            ]
+            ws.append_row(row)
     except Exception as e:
-        # 拋出 Exception 讓呼叫端的主程式捕捉並顯示
         raise Exception(f"{e}")
 
 def load_common_foods_from_gsheets():
     try:
-        df = conn.read(worksheet="common_foods", ttl="0s").dropna(how="all")
-        foods = df['food'].dropna().tolist()
-        return foods if foods else ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
+        ws = get_worksheet("common_foods")
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
+        if not df.empty and 'food' in df.columns:
+            foods = df['food'].dropna().tolist()
+            return foods if foods else ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
+        return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
     except Exception:
         return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
 
 def save_common_foods_to_gsheets(foods_list):
     try:
-        df = pd.DataFrame({'food': foods_list})
-        conn.update(worksheet="common_foods", data=df)
+        ws = get_worksheet("common_foods")
+        ws.clear()
+        ws.append_row(["food"])
+        for food in foods_list:
+            ws.append_row([food])
     except Exception as e:
         st.error(f"寫入常用食物失敗：{e}")
 
