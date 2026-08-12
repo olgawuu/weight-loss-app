@@ -293,4 +293,5 @@ with tab_log:
                     response = model.generate_content([prompt, f"餐點內容：{text_prompt}"])
 
                 # 清理與解析 JSON
-                clean_res = response.text.replace("```json", "").replace("
+                clean_res = response.text.replace("```json", "").replace("```", "").strip()
+                result = json.loads(clean_res)
