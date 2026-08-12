@@ -142,14 +142,22 @@ if not st.session_state['logged_in']:
 
     with tab1:
         st.subheader("使用者登入")
-        login_user = st.text_input("帳號 (Username)", key="login_user")
-        login_pwd = st.text_input("密碼 (Password)", type="password", key="login_pwd")
-        if st.button("登入", type="primary"):
-            if login_user and login_pwd:
-                success, result = verify_user(login_user, login_pwd)
+        # 使用 st.form 包裹登入欄位，解決按下登入時讀取到空值的情形
+        with st.form("login_form", clear_on_submit=False):
+            login_user = st.text_input("帳號 (Username)", key="login_user")
+            login_pwd = st.text_input("密碼 (Password)", type="password", key="login_pwd")
+            submit_login = st.form_submit_button("登入", type="primary")
+
+        if submit_login:
+            # 清除前後多餘空白
+            user_clean = login_user.strip() if login_user else ""
+            pwd_clean = login_pwd.strip() if login_pwd else ""
+
+            if user_clean and pwd_clean:
+                success, result = verify_user(user_clean, pwd_clean)
                 if success:
                     st.session_state['logged_in'] = True
-                    st.session_state['username'] = login_user
+                    st.session_state['username'] = user_clean
                     st.session_state['user_name'] = result
                     st.success(f"歡迎回來，{result}！")
                     st.rerun()
@@ -157,7 +165,6 @@ if not st.session_state['logged_in']:
                     st.error(result)
             else:
                 st.warning("請填寫帳號與密碼！")
-
     with tab2:
         st.subheader("建立新帳號")
         reg_user = st.text_input("設定帳號 (英文/數字佳)", key="reg_user")
