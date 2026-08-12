@@ -135,7 +135,8 @@ def update_user_profile(username, weight, target_weight, height, body_fat, activ
         st.error(f"更新數據失敗：{e}")
 
 # ── 歷史紀錄與常用食物讀寫 ──
-def load_history_from_gsheets(current_user):
+def load_history_from_gsheets(current_user, current_display_name=""):
+    """彈性搜尋使用者歷史紀錄（同時比對 username 與暱稱）"""
     try:
         ws = get_worksheet("history")
         rows = ws.get_all_values()
@@ -147,7 +148,19 @@ def load_history_from_gsheets(current_user):
         df = pd.DataFrame(rows[1:], columns=headers)
         
         if 'username' in df.columns:
-            df_filtered = df[df['username'].astype(str) == str(current_user)]
+            # 清理字串
+            u_str = str(current_user).strip().lower()
+            n_str = str(current_display_name).strip().lower()
+            
+            df['clean_user'] = df['username'].astype(str).str.strip().str.lower()
+            
+            # 只要匹配到 username 或暱稱其一就算過關
+            df_filtered = df[(df['clean_user'] == u_str) | (df['clean_user'] == n_str)]
+            
+            # 如果還是找不到，但雲端只有一個人用，自動全部帶出避免因為舊欄位錯誤看不到
+            if df_filtered.empty and len(df['clean_user'].unique()) == 1:
+                df_filtered = df
+
             return df_filtered.to_dict('records')
         return []
     except Exception as e:
@@ -189,8 +202,9 @@ def delete_history_item(username, record_time):
         headers = [str(h).strip() for h in rows[0]]
         df = pd.DataFrame(rows[1:], columns=headers)
         
-        if not df.empty and 'username' in df.columns and 'time' in df.columns:
-            df_updated = df[~((df['username'].astype(str) == str(username)) & (df['time'].astype(str) == str(record_time)))]
+        if not df.empty and 'time' in df.columns:
+            # 時間對得上即刪除
+            df_updated = df[~(df['time'].astype(str) == str(record_time))]
             
             ws.clear()
             ws.append_row(headers)
@@ -467,19 +481,22 @@ with tab_log:
 
 
 # ==========================================
-# Tab 2: 歷史飲食紀錄（安全渲染模式）
+# Tab 2: 歷史飲食紀錄（相容搜尋）
 # ==========================================
 with tab_history:
     st.subheader("📜 個人歷史飲食日誌")
     
-    current_user_name = st.session_state.get('username', '')
-    history_data = load_history_from_gsheets(current_user_name)
+    current_user_account = st.session_state.get('username', '')
+    current_user_display = st.session_state.get('user_name', '')
+    
+    history_data = load_history_from_gsheets(current_user_account, current_user_display)
     
     if not history_data:
         st.info("💡 目前尚無飲食紀錄，或是雲端試算表中尚未寫入任何歷史資料喔！快去「新增飲食分析」試試看吧。")
     else:
         st.success(f"共找到 {len(history_data)} 筆紀錄：")
-        for idx, item in enumerate(history_data):
+        # 依照時間倒序排列（最新紀錄放在最上面）
+        for idx, item in enumerate(reversed(history_data)):
             with st.container(border=True):
                 col1, col2 = st.columns([5, 1])
                 
@@ -505,7 +522,7 @@ with tab_history:
                     if st.button("🗑️ 刪除", key=f"del_his_{idx}"):
                         try:
                             delete_time = item.get('time', '')
-                            delete_history_item(current_user_name, delete_time)
+                            delete_history_item(current_user_account, delete_time)
                             st.toast("紀錄已順利刪除！", icon="🗑️")
                             st.rerun()
                         except Exception as e:
