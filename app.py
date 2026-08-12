@@ -317,23 +317,21 @@ with tab_log:
 
    # ── 按鈕點擊與分析邏輯 ──
 if st.button("🔍 開始 AI 估算營養", type="primary"):
-    # 1. 先做防呆檢查
     if input_method == "上傳照片辨識" and image is None:
         st.warning("請先上傳食物照片喔！")
     elif input_method in ["文字描述餐點", "常用食物快速選擇"] and not text_prompt.strip():
         st.warning("請先輸入或選擇餐點內容喔！")
     else:
-        # 2. 通過檢查，執行 AI 分析
         with st.spinner("AI 教練正在精算中..."):
             try:
                 from google import genai
                 import os
-                
-                # 安全獲取 API Key
+                import json
+                import re  # 引入正則表達式模組
+
                 api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
                 if not api_key:
-                    st.error("🔑 找不到 GEMINI_API_KEY！請至 Streamlit Secrets 設定 API Key。")
-                    st.stop()
+                    raise Exception("尚未設定 API Key，請至 Streamlit Secrets 設定 GEMINI_API_KEY。")
 
                 client = genai.Client(api_key=api_key)
 
@@ -365,6 +363,30 @@ if st.button("🔍 開始 AI 估算營養", type="primary"):
                         contents=[prompt, f"餐點內容：{text_prompt}"]
                     )
 
-                # 正確補齊字串與括號
-                clean_res = response.text.replace("```json", "").replace("```", "").strip()
+                # 使用正則表達式拔除 ```json 與 ```，避免語法標點符號被吃掉
+                clean_res = re.sub(r'```(?:json)?', '', response.text).strip()
                 result = json.loads(clean_res)
+
+                st.success("分析完成！")
+                st.markdown("### 📋 飲食營養估算報告")
+                st.markdown(f"* **餐點內容：** 【{meal_type}】{result.get('food_summary', '自訂餐點')}")
+                st.markdown(f"* **預估熱量：** 約 {result.get('calories', 0)} kcal")
+                st.markdown(f"* **三大營養素分布：** 蛋白質 {result.get('protein', 0)}g | 脂肪 {result.get('fat', 0)}g | 碳水化合物 {result.get('carbs', 0)}g")
+                st.info(f"💡 **教練貼心建議：**\n\n{result.get('advice', '')}")
+
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                new_record = [{
+                    "username": st.session_state['username'],
+                    "time": now_str,
+                    "meal": meal_type,
+                    "food": result.get('food_summary', text_prompt),
+                    "calories": result.get('calories', 0),
+                    "protein": result.get('protein', 0),
+                    "fat": result.get('fat', 0),
+                    "carbs": result.get('carbs', 0)
+                }]
+                save_history_to_gsheets(new_record)
+                st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
+
+            except Exception as e:
+                st.error(f"分析失敗，請重新嘗試：{e}")
