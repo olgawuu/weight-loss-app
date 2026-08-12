@@ -88,6 +88,17 @@ def update_user_profile(username, weight, target_weight, height, body_fat, activ
         st.error(f"更新數據失敗：{e}")
 
 
+# ── 修正 Streamlit Secrets 中的 private_key 轉義問題 ──
+try:
+    if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+        if "private_key" in st.secrets["connections"]["gsheets"]:
+            # 將單行字串中的 \n 轉為標準 PEM 格式的真實換行
+            st.secrets["connections"]["gsheets"]["private_key"] = (
+                st.secrets["connections"]["gsheets"]["private_key"].replace("\\n", "\n")
+            )
+except Exception:
+    pass
+
 # ── 歷史紀錄與常用食物讀寫（含 username 多租戶過濾） ──
 def load_history_from_gsheets(current_user):
     try:
@@ -110,7 +121,8 @@ def save_history_to_gsheets(history_list):
 
         conn.update(worksheet="history", data=df_combined)
     except Exception as e:
-        st.error(f"寫入歷史紀錄失敗：{e}")
+        # 拋出 Exception 讓呼叫端的主程式捕捉並顯示
+        raise Exception(f"{e}")
 
 def load_common_foods_from_gsheets():
     try:
@@ -126,7 +138,6 @@ def save_common_foods_to_gsheets(foods_list):
         conn.update(worksheet="common_foods", data=df)
     except Exception as e:
         st.error(f"寫入常用食物失敗：{e}")
-
 
 # ==================== 登入 / 註冊 邏輯控制 ====================
 if 'logged_in' not in st.session_state:
