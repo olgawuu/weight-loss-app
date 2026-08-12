@@ -47,20 +47,22 @@ def get_worksheet(worksheet_name):
     try:
         return spreadsheet.worksheet(worksheet_name)
     except Exception:
-        return spreadsheet.add_worksheet(title=worksheet_name, rows="100", cols="20")
+        ws = spreadsheet.add_worksheet(title=worksheet_name, rows="100", cols="20")
+        return ws
 
 # ── 使用者驗證與管理 ──
 def load_users_from_gsheets():
     try:
         ws = get_worksheet("users")
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
+        rows = ws.get_all_values()
+        if not rows or len(rows) <= 1:
+            return pd.DataFrame(columns=["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"])
+        headers = rows[0]
+        data = rows[1:]
+        df = pd.DataFrame(data, columns=headers)
         return df.dropna(how="all")
     except Exception:
-        return pd.DataFrame(columns=[
-            "username", "password", "name", 
-            "weight", "target_weight", "height", "body_fat", "activity_level"
-        ])
+        return pd.DataFrame(columns=["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"])
 
 def register_user(username, password, name):
     df_users = load_users_from_gsheets()
@@ -108,8 +110,13 @@ def verify_user(username, password):
 def update_user_profile(username, weight, target_weight, height, body_fat, activity_level):
     try:
         ws = get_worksheet("users")
-        data = ws.get_all_records()
-        df_users = pd.DataFrame(data)
+        rows = ws.get_all_values()
+        if not rows:
+            headers = ["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"]
+            df_users = pd.DataFrame(columns=headers)
+        else:
+            df_users = pd.DataFrame(rows[1:], columns=rows[0])
+
         idx = df_users[df_users['username'].astype(str) == str(username)].index
         
         if not idx.empty:
@@ -132,61 +139,78 @@ def update_user_profile(username, weight, target_weight, height, body_fat, activ
 def load_history_from_gsheets(current_user):
     try:
         ws = get_worksheet("history")
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
-        if not df.empty and 'username' in df.columns:
+        rows = ws.get_all_values()
+        
+        if not rows or len(rows) <= 1:
+            return []
+            
+        headers = [h.strip() for h in rows[0]]
+        df = pd.DataFrame(rows[1:], columns=headers)
+        
+        if 'username' in df.columns:
             df_filtered = df[df['username'].astype(str) == str(current_user)]
             return df_filtered.to_dict('records')
         return []
-    except Exception:
+    except Exception as e:
+        st.error(f"讀取歷史紀錄發生錯誤：{e}")
         return []
 
 def save_history_to_gsheets(history_list):
     try:
         ws = get_worksheet("history")
         existing_data = ws.get_all_values()
-        if not existing_data:
+        
+        # 若表格為空，先補上標題列
+        if not existing_data or len(existing_data) == 0 or existing_data[0] == ['']:
             headers = ["username", "time", "meal", "food", "calories", "protein", "fat", "carbs"]
+            ws.clear()
             ws.append_row(headers)
             
         for record in history_list:
             row = [
-                record.get("username", ""),
-                record.get("time", ""),
-                record.get("meal", ""),
-                record.get("food", ""),
-                record.get("calories", 0),
-                record.get("protein", 0),
-                record.get("fat", 0),
-                record.get("carbs", 0)
+                str(record.get("username", "")),
+                str(record.get("time", "")),
+                str(record.get("meal", "")),
+                str(record.get("food", "")),
+                str(record.get("calories", 0)),
+                str(record.get("protein", 0)),
+                str(record.get("fat", 0)),
+                str(record.get("carbs", 0))
             ]
             ws.append_row(row)
     except Exception as e:
-        raise Exception(f"{e}")
+        st.error(f"寫入雲端失敗：{e}")
 
 def delete_history_item(username, record_time):
     """根據使用者名稱與紀錄時間刪除單筆歷史紀錄"""
     try:
         ws = get_worksheet("history")
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
+        rows = ws.get_all_values()
+        if not rows or len(rows) <= 1:
+            return
+            
+        headers = rows[0]
+        df = pd.DataFrame(rows[1:], columns=headers)
         
         if not df.empty:
             df_updated = df[~((df['username'].astype(str) == str(username)) & (df['time'].astype(str) == str(record_time)))]
             
             ws.clear()
-            ws.append_row(["username", "time", "meal", "food", "calories", "protein", "fat", "carbs"])
+            ws.append_row(headers)
             for _, row in df_updated.iterrows():
                 ws.append_row(row.tolist())
     except Exception as e:
-        raise Exception(f"刪除失敗：{e}")
+        st.error(f"刪除失敗：{e}")
 
 def load_common_foods_from_gsheets():
     try:
         ws = get_worksheet("common_foods")
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
-        if not df.empty and 'food' in df.columns:
+        rows = ws.get_all_values()
+        if not rows or len(rows) <= 1:
+            return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
+            
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        if 'food' in df.columns:
             foods = df['food'].dropna().tolist()
             return foods if foods else ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
         return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
@@ -369,7 +393,7 @@ with tab_log:
                     st.toast(f"已刪除：{food_to_delete}", icon="🗑️")
                     st.rerun()
 
-    # ── 按鈕點擊與分析邏輯（收納在 Tab 1 內部） ──
+    # ── 按鈕點擊與分析邏輯 ──
     if st.button("🔍 開始 AI 估算營養", type="primary"):
         if input_method == "上傳照片辨識" and image is None:
             st.warning("請先上傳食物照片喔！")
@@ -441,7 +465,3 @@ with tab_log:
                     st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
 
                 except Exception as e:
-                    st.error(f"分析失敗，請重新嘗試：{e}")
-
-
-# =
