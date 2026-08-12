@@ -17,7 +17,6 @@ st.set_page_config(page_title="AI 減重飲食助手", page_icon="🥗", layout=
 def get_gsheets_client():
     creds_dict = dict(st.secrets["connections"]["gsheets"])
     
-    # 強制修正 private_key 中的各種 \n 轉義格式
     if "private_key" in creds_dict:
         pk = creds_dict["private_key"]
         pk = pk.replace("\\n", "\n")
@@ -57,7 +56,7 @@ def load_users_from_gsheets():
         rows = ws.get_all_values()
         if not rows or len(rows) <= 1:
             return pd.DataFrame(columns=["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"])
-        headers = rows[0]
+        headers = [str(h).strip() for h in rows[0]]
         data = rows[1:]
         df = pd.DataFrame(data, columns=headers)
         return df.dropna(how="all")
@@ -115,7 +114,7 @@ def update_user_profile(username, weight, target_weight, height, body_fat, activ
             headers = ["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"]
             df_users = pd.DataFrame(columns=headers)
         else:
-            df_users = pd.DataFrame(rows[1:], columns=rows[0])
+            df_users = pd.DataFrame(rows[1:], columns=[str(h).strip() for h in rows[0]])
 
         idx = df_users[df_users['username'].astype(str) == str(username)].index
         
@@ -144,7 +143,7 @@ def load_history_from_gsheets(current_user):
         if not rows or len(rows) <= 1:
             return []
             
-        headers = [h.strip() for h in rows[0]]
+        headers = [str(h).strip() for h in rows[0]]
         df = pd.DataFrame(rows[1:], columns=headers)
         
         if 'username' in df.columns:
@@ -152,7 +151,7 @@ def load_history_from_gsheets(current_user):
             return df_filtered.to_dict('records')
         return []
     except Exception as e:
-        st.error(f"讀取歷史紀錄發生錯誤：{e}")
+        st.error(f"⚠️ 讀取歷史紀錄發生錯誤：{e}")
         return []
 
 def save_history_to_gsheets(history_list):
@@ -160,7 +159,6 @@ def save_history_to_gsheets(history_list):
         ws = get_worksheet("history")
         existing_data = ws.get_all_values()
         
-        # 若表格為空，先補上標題列
         if not existing_data or len(existing_data) == 0 or existing_data[0] == ['']:
             headers = ["username", "time", "meal", "food", "calories", "protein", "fat", "carbs"]
             ws.clear()
@@ -182,17 +180,16 @@ def save_history_to_gsheets(history_list):
         st.error(f"寫入雲端失敗：{e}")
 
 def delete_history_item(username, record_time):
-    """根據使用者名稱與紀錄時間刪除單筆歷史紀錄"""
     try:
         ws = get_worksheet("history")
         rows = ws.get_all_values()
         if not rows or len(rows) <= 1:
             return
             
-        headers = rows[0]
+        headers = [str(h).strip() for h in rows[0]]
         df = pd.DataFrame(rows[1:], columns=headers)
         
-        if not df.empty:
+        if not df.empty and 'username' in df.columns and 'time' in df.columns:
             df_updated = df[~((df['username'].astype(str) == str(username)) & (df['time'].astype(str) == str(record_time)))]
             
             ws.clear()
@@ -209,7 +206,8 @@ def load_common_foods_from_gsheets():
         if not rows or len(rows) <= 1:
             return ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
             
-        df = pd.DataFrame(rows[1:], columns=rows[0])
+        headers = [str(h).strip() for h in rows[0]]
+        df = pd.DataFrame(rows[1:], columns=headers)
         if 'food' in df.columns:
             foods = df['food'].dropna().tolist()
             return foods if foods else ["水煮蛋沙拉", "無糖豆漿 + 茶葉蛋", "雞胸肉糙米飯便當"]
@@ -465,4 +463,50 @@ with tab_log:
                     st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
 
                 except Exception as e:
-                    st.error(f"刪除失敗：{e}")
+                    st.error(f"分析失敗，請重新嘗試：{e}")
+
+
+# ==========================================
+# Tab 2: 歷史飲食紀錄（安全渲染模式）
+# ==========================================
+with tab_history:
+    st.subheader("📜 個人歷史飲食日誌")
+    
+    current_user_name = st.session_state.get('username', '')
+    history_data = load_history_from_gsheets(current_user_name)
+    
+    if not history_data:
+        st.info("💡 目前尚無飲食紀錄，或是雲端試算表中尚未寫入任何歷史資料喔！快去「新增飲食分析」試試看吧。")
+    else:
+        st.success(f"共找到 {len(history_data)} 筆紀錄：")
+        for idx, item in enumerate(history_data):
+            with st.container(border=True):
+                col1, col2 = st.columns([5, 1])
+                
+                with col1:
+                    time_val = item.get('time', '時間未填')
+                    meal_val = item.get('meal', '餐別未填')
+                    food_val = item.get('food', '餐點內容未填')
+                    cal_val = item.get('calories', 0)
+                    p_val = item.get('protein', 0)
+                    f_val = item.get('fat', 0)
+                    c_val = item.get('carbs', 0)
+
+                    st.markdown(f"**⏰ 時間：** {time_val} | **餐別：** {meal_val}")
+                    st.markdown(f"**🥗 餐點：** {food_val}")
+                    st.markdown(
+                        f"🔥 **熱量：** {cal_val} kcal | "
+                        f"💪 蛋白質: {p_val}g | "
+                        f"🥑 脂肪: {f_val}g | "
+                        f"🍞 碳水: {c_val}g"
+                    )
+                
+                with col2:
+                    if st.button("🗑️ 刪除", key=f"del_his_{idx}"):
+                        try:
+                            delete_time = item.get('time', '')
+                            delete_history_item(current_user_name, delete_time)
+                            st.toast("紀錄已順利刪除！", icon="🗑️")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"刪除失敗：{e}")
