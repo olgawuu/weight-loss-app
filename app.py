@@ -325,11 +325,8 @@ with tab_log:
         else:
             with st.spinner("AI 教練正在精算中..."):
                 try:
-                    # 1. 建立模型 (自動嘗試 1.5-flash，若失敗則降級/升級備用)
-                    try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                    except Exception:
-                        model = genai.GenerativeModel('gemini-2.5-flash')
+                    # 1. 建立模型 (使用目前 API 萬用支援的 gemini-1.5-flash-latest 或 gemini-2.5-flash)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     # 2. 構建 Prompt
                     prompt = f"""
