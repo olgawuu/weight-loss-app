@@ -318,7 +318,9 @@ with tab_log:
     if st.button("🔍 開始 AI 估算營養", type="primary"):
         with st.spinner("AI 教練正在精算中..."):
             try:
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                model = genai.GenerativeModel('gemini-1.5-flash')
+            except Exception:
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 
                 prompt = f"""
                 你是一位專業的減重營養師。使用者資訊：
