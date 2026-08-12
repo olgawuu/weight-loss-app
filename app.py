@@ -365,4 +365,6 @@ if st.button("🔍 開始 AI 估算營養", type="primary"):
                         contents=[prompt, f"餐點內容：{text_prompt}"]
                     )
 
-                clean_res = response.text.replace("```json", "").replace("
+                # 正確補齊字串與括號
+                clean_res = response.text.replace("```json", "").replace("```", "").strip()
+                result = json.loads(clean_res)
