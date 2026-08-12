@@ -163,7 +163,7 @@ if not st.session_state['logged_in']:
         reg_user = st.text_input("設定帳號 (英文/數字佳)", key="reg_user")
         reg_name = st.text_input("你的暱稱 (顯示於 App 內)", key="reg_name")
         reg_pwd = st.text_input("設定密碼", type="password", key="reg_pwd")
-        if st.button("列車完成註冊"):
+        if st.button("完成註冊"):
             if reg_user and reg_pwd and reg_name:
                 ok, msg = register_user(reg_user, reg_pwd, reg_name)
                 if ok:
