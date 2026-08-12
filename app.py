@@ -295,3 +295,29 @@ with tab_log:
                 # 清理與解析 JSON
                 clean_res = response.text.replace("```json", "").replace("```", "").strip()
                 result = json.loads(clean_res)
+
+                # 展示分析報告
+                st.success("分析完成！")
+                st.markdown(f"### 📋 飲食營養估算報告")
+                st.markdown(f"* **餐點內容：** 【{meal_type}】{result.get('food_summary', '自訂餐點')}")
+                st.markdown(f"* **預估熱量：** 約 {result.get('calories', 0)} kcal")
+                st.markdown(f"* **三大營養素分布：** 蛋白質 {result.get('protein', 0)}g | 脂肪 {result.get('fat', 0)}g | 碳水化合物 {result.get('carbs', 0)}g")
+                st.info(f"💡 **教練貼心建議：**\n\n{result.get('advice', '')}")
+
+                # 自動儲存至 Google Sheets
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                new_record = [{
+                    "username": st.session_state['username'],
+                    "time": now_str,
+                    "meal": meal_type,
+                    "food": result.get('food_summary', text_prompt),
+                    "calories": result.get('calories', 0),
+                    "protein": result.get('protein', 0),
+                    "fat": result.get('fat', 0),
+                    "carbs": result.get('carbs', 0)
+                }]
+                save_history_to_gsheets(new_record)
+                st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
+
+            except Exception as e:
+                st.error(f"分析失敗，請重新嘗試：{e}")
