@@ -326,7 +326,7 @@ with tab_log:
             with st.spinner("AI 教練正在精算中..."):
                 try:
                     # 1. 定義備選模型清單
-                    candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-flash', 'gemini-1.5-pro']
+                    candidate_models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash']
                     
                     # 2. 構建 Prompt
                     prompt = f"""
