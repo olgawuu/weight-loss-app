@@ -4,6 +4,8 @@ from PIL import Image
 import plotly.express as px
 import bcrypt
 import json
+import os
+import re
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
@@ -13,12 +15,19 @@ st.set_page_config(page_title="AI 減重飲食助手", page_icon="🥗", layout=
 
 # ==================== Google Sheets 安全連線處理 ====================
 def get_gsheets_client():
-    # 取出 secrets 設定檔
     creds_dict = dict(st.secrets["connections"]["gsheets"])
     
-    # 關鍵修正：修復 private_key 中的 \n 轉義字元問題
+    # 強制修正 private_key 中的各種 \n 轉義格式
     if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        pk = creds_dict["private_key"]
+        pk = pk.replace("\\n", "\n")
+        
+        if not pk.startswith("-----BEGIN PRIVATE KEY-----"):
+            pk = "-----BEGIN PRIVATE KEY-----\n" + pk
+        if not pk.endswith("-----END PRIVATE KEY-----"):
+            pk = pk + "\n-----END PRIVATE KEY-----"
+            
+        creds_dict["private_key"] = pk
         
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -38,7 +47,6 @@ def get_worksheet(worksheet_name):
     try:
         return spreadsheet.worksheet(worksheet_name)
     except Exception:
-        # 若工作表不存在則自動建立
         return spreadsheet.add_worksheet(title=worksheet_name, rows="100", cols="20")
 
 # ── 使用者驗證與管理 ──
@@ -60,13 +68,10 @@ def register_user(username, password, name):
     if not df_users.empty and username in df_users['username'].astype(str).values:
         return False, "這個帳號（暱稱）已經有人使用過囉！"
     
-    # 密碼 Hash 加密
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     try:
         ws = get_worksheet("users")
-        
-        # 如果是空白表，先寫入 Header
         existing_data = ws.get_all_values()
         if not existing_data:
             headers = ["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"]
@@ -95,7 +100,6 @@ def verify_user(username, password):
     stored_pw = str(user_row.iloc[0]['password'])
     name = user_row.iloc[0]['name']
     
-    # 比對密碼
     if bcrypt.checkpw(password.encode('utf-8'), stored_pw.encode('utf-8')):
         return True, name
     else:
@@ -109,14 +113,12 @@ def update_user_profile(username, weight, target_weight, height, body_fat, activ
         idx = df_users[df_users['username'].astype(str) == str(username)].index
         
         if not idx.empty:
-            target_row_num = idx[0] + 2  # Excel/GSheets 1-based index + Header 佔 1 行
             df_users.loc[idx[0], 'weight'] = weight
             df_users.loc[idx[0], 'target_weight'] = target_weight
             df_users.loc[idx[0], 'height'] = height
             df_users.loc[idx[0], 'body_fat'] = body_fat
             df_users.loc[idx[0], 'activity_level'] = activity_level
             
-            # 重新寫入整張 Users 工作表
             ws.clear()
             ws.append_row(["username", "password", "name", "weight", "target_weight", "height", "body_fat", "activity_level"])
             for _, row in df_users.iterrows():
@@ -126,8 +128,7 @@ def update_user_profile(username, weight, target_weight, height, body_fat, activ
     except Exception as e:
         st.error(f"更新數據失敗：{e}")
 
-
-# ── 歷史紀錄與常用食物讀寫（含 username 多租戶過濾） ──
+# ── 歷史紀錄與常用食物讀寫 ──
 def load_history_from_gsheets(current_user):
     try:
         ws = get_worksheet("history")
@@ -143,8 +144,6 @@ def load_history_from_gsheets(current_user):
 def save_history_to_gsheets(history_list):
     try:
         ws = get_worksheet("history")
-        
-        # 如果是空白表，先寫入 Header
         existing_data = ws.get_all_values()
         if not existing_data:
             headers = ["username", "time", "meal", "food", "calories", "protein", "fat", "carbs"]
@@ -164,6 +163,23 @@ def save_history_to_gsheets(history_list):
             ws.append_row(row)
     except Exception as e:
         raise Exception(f"{e}")
+
+def delete_history_item(username, record_time):
+    """根據使用者名稱與紀錄時間刪除單筆歷史紀錄"""
+    try:
+        ws = get_worksheet("history")
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
+        
+        if not df.empty:
+            df_updated = df[~((df['username'].astype(str) == str(username)) & (df['time'].astype(str) == str(record_time)))]
+            
+            ws.clear()
+            ws.append_row(["username", "time", "meal", "food", "calories", "protein", "fat", "carbs"])
+            for _, row in df_updated.iterrows():
+                ws.append_row(row.tolist())
+    except Exception as e:
+        raise Exception(f"刪除失敗：{e}")
 
 def load_common_foods_from_gsheets():
     try:
@@ -201,14 +217,12 @@ if not st.session_state['logged_in']:
 
     with tab1:
         st.subheader("使用者登入")
-        # 使用 st.form 包裹登入欄位，解決按下登入時讀取到空值的情形
         with st.form("login_form", clear_on_submit=False):
             login_user = st.text_input("帳號 (Username)", key="login_user")
             login_pwd = st.text_input("密碼 (Password)", type="password", key="login_pwd")
             submit_login = st.form_submit_button("登入", type="primary")
 
         if submit_login:
-            # 清除前後多餘空白
             user_clean = login_user.strip() if login_user else ""
             pwd_clean = login_pwd.strip() if login_pwd else ""
 
@@ -243,8 +257,6 @@ if not st.session_state['logged_in']:
 
 
 # ==================== 主介面（登入成功後） ====================
-
-# 1. 撈取登入使用者的數據與個人化側邊欄
 df_users = load_users_from_gsheets()
 user_row = df_users[df_users['username'].astype(str) == str(st.session_state['username'])]
 
@@ -293,33 +305,16 @@ if st.sidebar.button("💾 儲存個人設定"):
         activity_level
     )
 
-# 計算基礎對應估算熱量（估計值）
 target_daily_calories = int(current_weight * 22 * (1.2 if "久坐" in activity_level else 1.375) - 300)
 
-# 主頁面內容
 st.title(f"🥗 {st.session_state['user_name']} 的 AI 減重飲食日誌")
 
-# ── AI API 設定 ──
-api_key = None
-
-# 1. 嘗試從各種可能的 Secrets 欄位讀取
-if "GEMINI_API_KEY" in st.secrets:
-    api_key = st.secrets["GEMINI_API_KEY"]
-elif "api_key" in st.secrets:
-    api_key = st.secrets["api_key"]
-elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-    # 萬一不小心被寫進 connections 區塊內
-    api_key = st.secrets["connections"]["gsheets"].get("GEMINI_API_KEY")
-
-if api_key:
-    from google import genai
-    client = genai.Client(api_key=str(api_key))
-else:
-    st.error("未找到 Gemini API Key，請檢查 Streamlit Cloud 的 Secrets 設定！")
-
-# ── 頁籤：飲食估算與歷史紀錄 ──
+# ── 頁籤切換：新增飲食與歷史紀錄 ──
 tab_log, tab_history = st.tabs(["📸 新增飲食分析", "📜 歷史飲食紀錄"])
 
+# ==========================================
+# Tab 1: 新增飲食分析
+# ==========================================
 with tab_log:
     st.subheader("記錄今天的餐點")
     input_method = st.radio("選擇輸入方式：", ["上傳照片辨識", "文字描述餐點", "常用食物快速選擇"])
@@ -348,13 +343,12 @@ with tab_log:
             st.info("目前清單中沒有常用食物，請在下方新增！")
             text_prompt = ""
 
-        # ── 管理常用食物區塊 ──
         with st.expander("⚙️ 管理常用食物清單（新增 / 刪除）"):
             col1, col2 = st.columns([3, 1])
             with col1:
                 new_food_input = st.text_input("輸入新食物名稱（例如：地瓜 + 美式咖啡）", key="new_food_input")
             with col2:
-                st.write(" ") # 排版留白
+                st.write(" ")
                 st.write(" ") 
                 if st.button("➕ 新增", use_container_width=True):
                     if new_food_input and new_food_input not in common_foods:
@@ -375,82 +369,79 @@ with tab_log:
                     st.toast(f"已刪除：{food_to_delete}", icon="🗑️")
                     st.rerun()
 
-   # ── 按鈕點擊與分析邏輯 ──
-if st.button("🔍 開始 AI 估算營養", type="primary"):
-    if input_method == "上傳照片辨識" and image is None:
-        st.warning("請先上傳食物照片喔！")
-    elif input_method in ["文字描述餐點", "常用食物快速選擇"] and not text_prompt.strip():
-        st.warning("請先輸入或選擇餐點內容喔！")
-    else:
-        with st.spinner("AI 教練正在精算中..."):
-            try:
-                from google import genai
-                import os
-                import json
-                import re
+    # ── 按鈕點擊與分析邏輯（收納在 Tab 1 內部） ──
+    if st.button("🔍 開始 AI 估算營養", type="primary"):
+        if input_method == "上傳照片辨識" and image is None:
+            st.warning("請先上傳食物照片喔！")
+        elif input_method in ["文字描述餐點", "常用食物快速選擇"] and not text_prompt.strip():
+            st.warning("請先輸入或選擇餐點內容喔！")
+        else:
+            with st.spinner("AI 教練正在精算中..."):
+                try:
+                    from google import genai
 
-                # 彈性擷取 Secrets 或環境變數
-                api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("connections", {}).get("gsheets", {}).get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-                if not api_key:
-                    raise Exception("尚未設定 API Key，請至 Streamlit Secrets 設定 GEMINI_API_KEY。")
+                    api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("connections", {}).get("gsheets", {}).get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+                    if not api_key:
+                        raise Exception("尚未設定 API Key，請至 Streamlit Secrets 設定 GEMINI_API_KEY。")
 
-                client = genai.Client(api_key=api_key)
+                    client = genai.Client(api_key=str(api_key))
 
-                prompt = f"""
-                你是一位專業的減重營養師。使用者資訊：
-                - 目前體重：{current_weight} kg
-                - 目標體重：{target_weight} kg
-                - 每日目標熱量：{target_daily_calories} kcal
-                
-                請分析此餐點（{meal_type}）：
-                請以 JSON 格式回應，包含以下 key：
-                - "food_summary": "餐點內容簡述"
-                - "calories": 熱量估算(整數)
-                - "protein": 蛋白質估計克數(整數)
-                - "fat": 脂肪估計克數(整數)
-                - "carbs": 碳水化合物估計克數(整數)
-                - "advice": "給使用者的貼心減重建議（100字內）"
-                回應必須是合法的 JSON 格式，不要加多餘文字。
-                """
+                    prompt = f"""
+                    你是一位專業的減重營養師。使用者資訊：
+                    - 目前體重：{current_weight} kg
+                    - 目標體重：{target_weight} kg
+                    - 每日目標熱量：{target_daily_calories} kcal
+                    
+                    請分析此餐點（{meal_type}）：
+                    請以 JSON 格式回應，包含以下 key：
+                    - "food_summary": "餐點內容簡述"
+                    - "calories": 熱量估算(整數)
+                    - "protein": 蛋白質估計克數(整數)
+                    - "fat": 脂肪估計克數(整數)
+                    - "carbs": 碳水化合物估計克數(整數)
+                    - "advice": "給使用者的貼心減重建議（100字內）"
+                    回應必須是合法的 JSON 格式，不要加多餘文字。
+                    """
 
-                # 請使用完整的模型字串名稱
-                model_id = "gemini-3.6-flash"
+                    model_id = "gemini-3.6-flash"
 
-                if input_method == "上傳照片辨識" and image:
-                    response = client.models.generate_content(
-                        model=model_id,
-                        contents=[prompt, image]
-                    )
-                else:
-                    response = client.models.generate_content(
-                        model=model_id,
-                        contents=[prompt, f"餐點內容：{text_prompt}"]
-                    )
+                    if input_method == "上傳照片辨識" and image:
+                        response = client.models.generate_content(
+                            model=model_id,
+                            contents=[prompt, image]
+                        )
+                    else:
+                        response = client.models.generate_content(
+                            model=model_id,
+                            contents=[prompt, f"餐點內容：{text_prompt}"]
+                        )
 
-                # 清理 Markdown 並解析 JSON
-                clean_res = re.sub(r'```(?:json)?', '', response.text).strip()
-                result = json.loads(clean_res)
+                    clean_res = re.sub(r'```(?:json)?', '', response.text).strip()
+                    result = json.loads(clean_res)
 
-                st.success("分析完成！")
-                st.markdown("### 📋 飲食營養估算報告")
-                st.markdown(f"* **餐點內容：** 【{meal_type}】{result.get('food_summary', '自訂餐點')}")
-                st.markdown(f"* **預估熱量：** 約 {result.get('calories', 0)} kcal")
-                st.markdown(f"* **三大營養素分布：** 蛋白質 {result.get('protein', 0)}g | 脂肪 {result.get('fat', 0)}g | 碳水化合物 {result.get('carbs', 0)}g")
-                st.info(f"💡 **教練貼心建議：**\n\n{result.get('advice', '')}")
+                    st.success("分析完成！")
+                    st.markdown("### 📋 飲食營養估算報告")
+                    st.markdown(f"* **餐點內容：** 【{meal_type}】{result.get('food_summary', '自訂餐點')}")
+                    st.markdown(f"* **預估熱量：** 約 {result.get('calories', 0)} kcal")
+                    st.markdown(f"* **三大營養素分布：** 蛋白質 {result.get('protein', 0)}g | 脂肪 {result.get('fat', 0)}g | 碳水化合物 {result.get('carbs', 0)}g")
+                    st.info(f"💡 **教練貼心建議：**\n\n{result.get('advice', '')}")
 
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                new_record = [{
-                    "username": st.session_state['username'],
-                    "time": now_str,
-                    "meal": meal_type,
-                    "food": result.get('food_summary', text_prompt),
-                    "calories": result.get('calories', 0),
-                    "protein": result.get('protein', 0),
-                    "fat": result.get('fat', 0),
-                    "carbs": result.get('carbs', 0)
-                }]
-                save_history_to_gsheets(new_record)
-                st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    new_record = [{
+                        "username": st.session_state['username'],
+                        "time": now_str,
+                        "meal": meal_type,
+                        "food": result.get('food_summary', text_prompt),
+                        "calories": result.get('calories', 0),
+                        "protein": result.get('protein', 0),
+                        "fat": result.get('fat', 0),
+                        "carbs": result.get('carbs', 0)
+                    }]
+                    save_history_to_gsheets(new_record)
+                    st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
 
-            except Exception as e:
-                st.error(f"分析失敗，請重新嘗試：{e}")
+                except Exception as e:
+                    st.error(f"分析失敗，請重新嘗試：{e}")
+
+
+# =
