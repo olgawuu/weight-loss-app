@@ -234,10 +234,21 @@ target_daily_calories = int(current_weight * 22 * (1.2 if "久坐" in activity_l
 st.title(f"🥗 {st.session_state['user_name']} 的 AI 減重飲食日誌")
 
 # ── AI API 設定 ──
+api_key = None
+
+# 1. 嘗試從各種可能的 Secrets 欄位讀取
 if "GEMINI_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    api_key = st.secrets["GEMINI_API_KEY"]
+elif "api_key" in st.secrets:
+    api_key = st.secrets["api_key"]
+elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+    # 萬一不小心被寫進 connections 區塊內
+    api_key = st.secrets["connections"]["gsheets"].get("GEMINI_API_KEY")
+
+if api_key:
+    genai.configure(api_key=str(api_key))
 else:
-    st.error("未找到 Gemini API Key，請檢查 Secrets 設定！")
+    st.error("未找到 Gemini API Key，請檢查 Streamlit Cloud 的 Secrets 設定！")
 
 # ── 頁籤：飲食估算與歷史紀錄 ──
 tab_log, tab_history = st.tabs(["📸 新增飲食分析", "📜 歷史飲食紀錄"])
