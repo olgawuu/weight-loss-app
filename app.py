@@ -273,8 +273,40 @@ with tab_log:
         
     elif input_method == "常用食物快速選擇":
         common_foods = load_common_foods_from_gsheets()
-        selected_food = st.selectbox("選擇常用食物：", common_foods)
-        text_prompt = selected_food
+        
+        if common_foods:
+            selected_food = st.selectbox("選擇常用食物：", common_foods)
+            text_prompt = selected_food
+        else:
+            st.info("目前清單中沒有常用食物，請在下方新增！")
+            text_prompt = ""
+
+        # ── 管理常用食物區塊 ──
+        with st.expander("⚙️ 管理常用食物清單（新增 / 刪除）"):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                new_food_input = st.text_input("輸入新食物名稱（例如：地瓜 + 美式咖啡）", key="new_food_input")
+            with col2:
+                st.write(" ") # 排版留白
+                st.write(" ") 
+                if st.button("➕ 新增", use_container_width=True):
+                    if new_food_input and new_food_input not in common_foods:
+                        common_foods.append(new_food_input)
+                        save_common_foods_to_gsheets(common_foods)
+                        st.toast(f"已新增：{new_food_input}", icon="✅")
+                        st.rerun()
+                    elif new_food_input in common_foods:
+                        st.warning("這個食物已經在清單中囉！")
+
+            st.divider()
+
+            if common_foods:
+                food_to_delete = st.selectbox("選擇要刪除的常用食物：", common_foods, key="del_food_select")
+                if st.button("🗑️ 刪除選取食物", type="secondary"):
+                    common_foods.remove(food_to_delete)
+                    save_common_foods_to_gsheets(common_foods)
+                    st.toast(f"已刪除：{food_to_delete}", icon="🗑️")
+                    st.rerun()
 
     if st.button("🔍 開始 AI 估算營養", type="primary"):
         with st.spinner("AI 教練正在精算中..."):
