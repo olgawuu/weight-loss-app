@@ -327,9 +327,10 @@ if st.button("🔍 開始 AI 估算營養", type="primary"):
                 from google import genai
                 import os
                 import json
-                import re  # 引入正則表達式模組
+                import re
 
-                api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+                # 彈性擷取 Secrets 或環境變數
+                api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get("connections", {}).get("gsheets", {}).get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
                 if not api_key:
                     raise Exception("尚未設定 API Key，請至 Streamlit Secrets 設定 GEMINI_API_KEY。")
 
@@ -352,18 +353,21 @@ if st.button("🔍 開始 AI 估算營養", type="primary"):
                 回應必須是合法的 JSON 格式，不要加多餘文字。
                 """
 
+                # 使用最新 SDK 規範：client.models.generate_content
+                model_id = "gemini-2.5-flash"
+
                 if input_method == "上傳照片辨識" and image:
-                    response = client.interactions.create(
-                        model="gemini-2.5-flash",
+                    response = client.models.generate_content(
+                        model=model_id,
                         contents=[prompt, image]
                     )
                 else:
-                    response = client.interactions.create(
-                        model="gemini-2.5-flash",
+                    response = client.models.generate_content(
+                        model=model_id,
                         contents=[prompt, f"餐點內容：{text_prompt}"]
                     )
 
-                # 使用正則表達式拔除 ```json 與 ```，避免語法標點符號被吃掉
+                # 清理 Markdown 並解析 JSON
                 clean_res = re.sub(r'```(?:json)?', '', response.text).strip()
                 result = json.loads(clean_res)
 
