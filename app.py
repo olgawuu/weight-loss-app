@@ -465,3 +465,4 @@ with tab_log:
                     st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
 
                 except Exception as e:
+                    st.error(f"刪除失敗：{e}")
