@@ -353,8 +353,8 @@ if st.button("🔍 開始 AI 估算營養", type="primary"):
                 回應必須是合法的 JSON 格式，不要加多餘文字。
                 """
 
-                # 使用最新 SDK 規範：client.models.generate_content
-                model_id = "gemini-2.5-flash"
+                # 使用別名 gemini-flash，自動對應最新 Flash 系列模型
+                model_id = "gemini-flash"
 
                 if input_method == "上傳照片辨識" and image:
                     response = client.models.generate_content(
