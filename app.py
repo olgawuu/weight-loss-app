@@ -324,60 +324,79 @@ with tab_log:
             st.warning("請先輸入或選擇餐點內容喔！")
         else:
             with st.spinner("AI 教練正在精算中..."):
-                try:
-                    # 1. 定義備選模型清單（優先使用 2.0-flash，備用 1.5 系列）
-                    candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-flash', 'gemini-1.5-pro']
-                    
-                    # 2. 構建 Prompt
-                    prompt = f"""
-                    你是一位專業的減重營養師。使用者資訊：
-                    - 目前體重：{current_weight} kg
-                    - 目標體重：{target_weight} kg
-                    - 每日目標熱量：{target_daily_calories} kcal
-                    
-                    請分析此餐點（{meal_type}）：
-                    請以 JSON 格式回應，包含以下 key：
-                    - "food_summary": "餐點內容簡述"
-                    - "calories": 熱量估算(整數)
-                    - "protein": 蛋白質估計克數(整數)
-                    - "fat": 脂肪估計克數(整數)
-                    - "carbs": 碳水化合物估計克數(整數)
-                    - "advice": "給使用者的貼心減重建議（100字內）"
-                    回應必須是合法的 JSON 格式，不要加多餘文字。
-                    """
+            try:
+                # 1. 定義備選模型清單
+                candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-flash', 'gemini-1.5-pro']
+                
+                # 2. 構建 Prompt
+                prompt = f"""
+                你是一位專業的減重營養師。使用者資訊：
+                - 目前體重：{current_weight} kg
+                - 目標體重：{target_weight} kg
+                - 每日目標熱量：{target_daily_calories} kcal
+                
+                請分析此餐點（{meal_type}）：
+                請以 JSON 格式回應，包含以下 key：
+                - "food_summary": "餐點內容簡述"
+                - "calories": 熱量估算(整數)
+                - "protein": 蛋白質估計克數(整數)
+                - "fat": 脂肪估計克數(整數)
+                - "carbs": 碳水化合物估計克數(整數)
+                - "advice": "給使用者的貼心減重建議（100字內）"
+                回應必須是合法的 JSON 格式，不要加多餘文字。
+                """
 
-                    # 3. 呼叫 Gemini API
-                    if input_method == "上傳照片辨識" and image:
-                        response = model.generate_content([prompt, image])
-                    else:
-                        response = model.generate_content([prompt, f"餐點內容：{text_prompt}"])
+                # 3. 逐一嘗試可用模型發送請求
+                response = None
+                last_error = None
 
-                    # 4. 清理與解析 JSON
-                    clean_res = response.text.replace("```json", "").replace("```", "").strip()
-                    result = json.loads(clean_res)
+                for model_name in candidate_models:
+                    try:
+                        # 每次迴圈直接實體化該模型並嘗試生成內容
+                        current_model = genai.GenerativeModel(model_name)
+                        
+                        if input_method == "上傳照片辨識" and image:
+                            response = current_model.generate_content([prompt, image])
+                        else:
+                            response = current_model.generate_content([prompt, f"餐點內容：{text_prompt}"])
+                        
+                        # 只要成功取得回覆就跳出迴圈
+                        if response and response.text:
+                            break
+                    except Exception as err:
+                        last_error = err
+                        continue  # 失敗就自動嘗試下一個模型
 
-                    # 5. 展示分析報告
-                    st.success("分析完成！")
-                    st.markdown("### 📋 飲食營養估算報告")
-                    st.markdown(f"* **餐點內容：** 【{meal_type}】{result.get('food_summary', '自訂餐點')}")
-                    st.markdown(f"* **預估熱量：** 約 {result.get('calories', 0)} kcal")
-                    st.markdown(f"* **三大營養素分布：** 蛋白質 {result.get('protein', 0)}g | 脂肪 {result.get('fat', 0)}g | 碳水化合物 {result.get('carbs', 0)}g")
-                    st.info(f"💡 **教練貼心建議：**\n\n{result.get('advice', '')}")
+                # 4. 若所有模型皆嘗試失敗
+                if not response:
+                    raise Exception(f"無法呼叫 API，最後錯誤資訊：{last_error}")
 
-                    # 6. 自動儲存至 Google Sheets
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    new_record = [{
-                        "username": st.session_state['username'],
-                        "time": now_str,
-                        "meal": meal_type,
-                        "food": result.get('food_summary', text_prompt),
-                        "calories": result.get('calories', 0),
-                        "protein": result.get('protein', 0),
-                        "fat": result.get('fat', 0),
-                        "carbs": result.get('carbs', 0)
-                    }]
-                    save_history_to_gsheets(new_record)
-                    st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
+                # 5. 清理與解析 JSON
+                clean_res = response.text.replace("```json", "").replace("```", "").strip()
+                result = json.loads(clean_res)
 
-                except Exception as e:
-                    st.error(f"分析失敗，請重新嘗試：{e}")
+                # 6. 展示分析報告
+                st.success("分析完成！")
+                st.markdown("### 📋 飲食營養估算報告")
+                st.markdown(f"* **餐點內容：** 【{meal_type}】{result.get('food_summary', '自訂餐點')}")
+                st.markdown(f"* **預估熱量：** 約 {result.get('calories', 0)} kcal")
+                st.markdown(f"* **三大營養素分布：** 蛋白質 {result.get('protein', 0)}g | 脂肪 {result.get('fat', 0)}g | 碳水化合物 {result.get('carbs', 0)}g")
+                st.info(f"💡 **教練貼心建議：**\n\n{result.get('advice', '')}")
+
+                # 7. 自動儲存至 Google Sheets
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                new_record = [{
+                    "username": st.session_state['username'],
+                    "time": now_str,
+                    "meal": meal_type,
+                    "food": result.get('food_summary', text_prompt),
+                    "calories": result.get('calories', 0),
+                    "protein": result.get('protein', 0),
+                    "fat": result.get('fat', 0),
+                    "carbs": result.get('carbs', 0)
+                }]
+                save_history_to_gsheets(new_record)
+                st.toast("已成功記錄至你的個人雲端日誌！", icon="📝")
+
+            except Exception as e:
+                st.error(f"分析失敗，請重新嘗試：{e}")
