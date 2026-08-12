@@ -312,7 +312,8 @@ elif "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
     api_key = st.secrets["connections"]["gsheets"].get("GEMINI_API_KEY")
 
 if api_key:
-    genai.configure(api_key=str(api_key))
+    from google import genai
+    client = genai.Client(api_key=str(api_key))
 else:
     st.error("未找到 Gemini API Key，請檢查 Streamlit Cloud 的 Secrets 設定！")
 
