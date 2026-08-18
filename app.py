@@ -235,6 +235,78 @@ def save_common_foods_to_gsheets(foods_list):
     except Exception as e:
         st.error(f"寫入常用食物失敗：{e}")
 
+# ── 體重 / 體脂紀錄讀寫 ──
+def load_weight_log_from_gsheets(current_user, current_display_name=""):
+    """讀取使用者體重紀錄（會自動建立 weight_log 分頁，若不存在的話）"""
+    try:
+        ws = get_worksheet("weight_log")
+        rows = ws.get_all_values()
+
+        if not rows or len(rows) <= 1:
+            return []
+
+        headers = [str(h).strip() for h in rows[0]]
+        df = pd.DataFrame(rows[1:], columns=headers)
+
+        if 'username' in df.columns:
+            u_str = str(current_user).strip().lower()
+            n_str = str(current_display_name).strip().lower()
+
+            df['clean_user'] = df['username'].astype(str).str.strip().str.lower()
+            df_filtered = df[(df['clean_user'] == u_str) | (df['clean_user'] == n_str)]
+
+            if df_filtered.empty and len(df['clean_user'].unique()) == 1:
+                df_filtered = df
+
+            return df_filtered.to_dict('records')
+        return []
+    except Exception as e:
+        st.error(f"⚠️ 讀取體重紀錄發生錯誤：{e}")
+        return []
+
+def save_weight_log_to_gsheets(record):
+    try:
+        ws = get_worksheet("weight_log")
+        existing_data = ws.get_all_values()
+
+        if not existing_data or len(existing_data) == 0 or existing_data[0] == ['']:
+            headers = ["username", "date", "weight", "body_fat"]
+            ws.clear()
+            ws.append_row(headers)
+
+        row = [
+            str(record.get("username", "")),
+            str(record.get("date", "")),
+            str(record.get("weight", 0)),
+            str(record.get("body_fat", 0)),
+        ]
+        ws.append_row(row)
+    except Exception as e:
+        st.error(f"寫入體重紀錄失敗：{e}")
+
+def delete_weight_log_item(username, record_date):
+    try:
+        ws = get_worksheet("weight_log")
+        rows = ws.get_all_values()
+        if not rows or len(rows) <= 1:
+            return
+
+        headers = [str(h).strip() for h in rows[0]]
+        df = pd.DataFrame(rows[1:], columns=headers)
+
+        if not df.empty and 'date' in df.columns and 'username' in df.columns:
+            df_updated = df[~(
+                (df['date'].astype(str) == str(record_date)) &
+                (df['username'].astype(str) == str(username))
+            )]
+
+            ws.clear()
+            ws.append_row(headers)
+            for _, row in df_updated.iterrows():
+                ws.append_row(row.tolist())
+    except Exception as e:
+        st.error(f"刪除失敗：{e}")
+
 # ==================== 登入 / 註冊 邏輯控制 ====================
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
@@ -390,8 +462,8 @@ if remaining_calories < 0:
 
 st.divider()
 
-# ── 頁籤切換：新增飲食與歷史紀錄 ──
-tab_log, tab_history = st.tabs(["📸 新增飲食分析", "📜 歷史飲食紀錄"])
+# ── 頁籤切換：新增飲食、歷史紀錄與體重變化 ──
+tab_log, tab_history, tab_weight = st.tabs(["📸 新增飲食分析", "📜 歷史飲食紀錄", "⚖️ 體重變化紀錄"])
 
 # ==========================================
 # Tab 1: 新增飲食分析
@@ -641,3 +713,111 @@ with tab_history:
                             st.rerun()
                         except Exception as e:
                             st.error(f"刪除失敗：{e}")
+
+
+# ==========================================
+# Tab 3: 體重變化紀錄
+# ==========================================
+with tab_weight:
+    st.subheader("⚖️ 體重 / 體脂紀錄")
+    st.caption("定期記錄體重與體脂，隨時間追蹤減重成效。")
+
+    current_user_account = st.session_state.get('username', '')
+    current_user_display = st.session_state.get('user_name', '')
+
+    col_w1, col_w2, col_w3 = st.columns(3)
+    with col_w1:
+        weight_record_date = st.date_input(
+            "📅 紀錄日期", value=date.today(), max_value=date.today(), key="weight_record_date"
+        )
+    with col_w2:
+        weight_input = st.number_input(
+            "體重 (kg)", value=float(current_weight), step=0.1, key="weight_log_weight"
+        )
+    with col_w3:
+        body_fat_input = st.number_input(
+            "體脂率 % (選填)", value=float(body_fat), step=0.1, key="weight_log_bodyfat"
+        )
+
+    if st.button("💾 儲存體重紀錄", type="primary", use_container_width=True):
+        new_weight_record = {
+            "username": current_user_account,
+            "date": weight_record_date.strftime("%Y-%m-%d"),
+            "weight": weight_input,
+            "body_fat": body_fat_input,
+        }
+        save_weight_log_to_gsheets(new_weight_record)
+        st.toast("體重紀錄已儲存！", icon="✅")
+        st.rerun()
+
+    st.divider()
+
+    weight_log_data = load_weight_log_from_gsheets(current_user_account, current_user_display)
+
+    if not weight_log_data:
+        st.info("💡 目前尚無體重紀錄，快在上方新增第一筆吧！")
+    else:
+        df_w = pd.DataFrame(weight_log_data)
+        df_w['weight_num'] = pd.to_numeric(df_w.get('weight', 0), errors='coerce')
+        df_w['body_fat_num'] = pd.to_numeric(df_w.get('body_fat', 0), errors='coerce')
+        df_w['date_parsed'] = pd.to_datetime(df_w.get('date', ''), errors='coerce')
+        df_w = df_w.dropna(subset=['date_parsed']).sort_values('date_parsed')
+
+        # 同一天若記錄多次，只保留最後一筆，避免圖表出現重複日期
+        df_w = df_w.drop_duplicates(subset='date', keep='last')
+
+        if df_w.empty:
+            st.info("💡 目前尚無有效的體重紀錄。")
+        else:
+            latest_weight = df_w.iloc[-1]['weight_num']
+            first_weight = df_w.iloc[0]['weight_num']
+            weight_change = latest_weight - first_weight
+
+            s1, s2, s3 = st.columns(3)
+            s1.metric("最新體重", f"{latest_weight:.1f} kg")
+            s2.metric("距目標體重", f"{abs(latest_weight - target_weight):.1f} kg")
+            s3.metric("累計變化", f"{weight_change:+.1f} kg")
+
+            # ── 體重變化折線圖 ──
+            fig_w = px.line(
+                df_w, x='date_parsed', y='weight_num',
+                markers=True,
+                labels={'date_parsed': '日期', 'weight_num': '體重 (kg)'},
+                title="體重變化趨勢"
+            )
+            fig_w.add_hline(
+                y=target_weight, line_dash="dash", line_color="green",
+                annotation_text="目標體重", annotation_position="bottom right"
+            )
+            st.plotly_chart(fig_w, use_container_width=True)
+
+            # ── 體脂率變化折線圖（若有資料才顯示）──
+            if df_w['body_fat_num'].notna().any() and (df_w['body_fat_num'] > 0).any():
+                fig_bf = px.line(
+                    df_w, x='date_parsed', y='body_fat_num',
+                    markers=True,
+                    labels={'date_parsed': '日期', 'body_fat_num': '體脂率 (%)'},
+                    title="體脂率變化趨勢"
+                )
+                st.plotly_chart(fig_bf, use_container_width=True)
+
+            st.divider()
+            st.markdown("#### 📋 歷史紀錄明細")
+
+            weight_records_sorted = df_w.sort_values('date_parsed', ascending=False).to_dict('records')
+            for widx, witem in enumerate(weight_records_sorted):
+                with st.container(border=True):
+                    wcol1, wcol2 = st.columns([5, 1])
+                    with wcol1:
+                        w_date = witem.get('date', '')
+                        w_weight = witem.get('weight', 0)
+                        w_bf = witem.get('body_fat', 0)
+                        st.markdown(f"**📅 {w_date}** ｜ 體重：{w_weight} kg ｜ 體脂：{w_bf}%")
+                    with wcol2:
+                        if st.button("🗑️ 刪除", key=f"del_w_{widx}_{w_date}"):
+                            try:
+                                delete_weight_log_item(current_user_account, w_date)
+                                st.toast("紀錄已刪除！", icon="🗑️")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"刪除失敗：{e}")
